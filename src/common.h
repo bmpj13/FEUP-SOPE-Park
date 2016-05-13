@@ -6,6 +6,7 @@
 #define NUM_CONTROLLERS             4
 #define CONTROLLER_NAME_LEN         50
 #define VEHICLE_NAME_LEN            100
+#define MESSAGE_LEN                 100
 
 const char FULL_STR[] = "cheio!";
 const char ACCEPTED_STR[] = "entrada";
@@ -22,6 +23,11 @@ typedef struct {
     int vehicle_id;
     char vehicle_fifo_name[VEHICLE_NAME_LEN];
 } info_t;
+
+
+typedef struct {
+    char msg[MESSAGE_LEN];
+} feedback_t;
 
 
 #endif

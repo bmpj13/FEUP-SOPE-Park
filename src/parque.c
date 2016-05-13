@@ -13,7 +13,6 @@
 #include "utils.h"
 
 #define NUM_CONTROLLERS         4
-#define MAX_REQUESTS            500
 
 
 /* Global Variables */
@@ -26,6 +25,7 @@ static pthread_mutex_t arrumador_lock = PTHREAD_MUTEX_INITIALIZER;
 /* Functions */
 void* controlador(void* arg);
 void* arrumador(void* arg);
+void notify_controllers(const char* message);
 
 
 int main(int argc, char** argv) {
@@ -58,6 +58,9 @@ int main(int argc, char** argv) {
         pthread_create(&threads[i], NULL, controlador, controller_name[i]);
     }
     
+    sleep(tAbertura);
+    notify_controllers(FINISH_STR);
+    
     for (i = 0; i < NUM_CONTROLLERS; i++)
     {
         pthread_join(threads[i], NULL);
@@ -70,65 +73,44 @@ int main(int argc, char** argv) {
 
 
 void* controlador(void* arg) {
-    clock_t start;
     char* fifo_name;
-    int flags, fd;
-    double timeElapsed = 0;
+    int fd, ret;
     pthread_t detach_thread;
     info_t* request_info;
     
     fifo_name = (char *) arg;
     
-    if (mkfifo(fifo_name, S_IWUSR | S_IRUSR) == -1)
-    {
-        perror(strcat(fifo_name, " FIFO creation failed on controlador"));
+    if ( (fd = init_fifo(fifo_name)) == -1 )
         pthread_exit(NULL);
-    }
-    
-    
-    if ( (fd = open(fifo_name, O_RDWR)) == -1 )
-    {
-        perror(strcat(fifo_name, " FIFO opening failed on controlador"));
-        pthread_exit(NULL);
-    }
-    
-    
-    /* Set FIFO to not block on read */
-    flags = fcntl(fd, F_GETFL, 0);
-    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-    
     
     request_info = (info_t *) malloc(sizeof(info_t));
-    start = clock();
-    while (timeElapsed < tAbertura) {
+    while (1) {
         
-        int ret;
-        if ( (ret = read(fd, request_info, sizeof(*request_info))) > 0 )
+        ret = read(fd, request_info, sizeof(*request_info));
+        
+        if (ret > 0)
         {
+            if (strcmp(request_info->vehicle_fifo_name, FINISH_STR) == 0)
+                break;
+            
+            printf("%s\n", request_info->vehicle_fifo_name);
+            
             pthread_create(&detach_thread, NULL, arrumador, request_info);
             request_info = (info_t *) malloc(sizeof(info_t));
         }
-        else if (ret == -1 && errno != EAGAIN)          // if error is not caused by O_NONBLOCK 
+        else if (ret == -1)
         {
-            perror("Error reading");
+            perror("Error reading on controller");
             free(request_info);
             close(fd);
-            pthread_exit(NULL);
-        } 
-        
-        timeElapsed = (double) (clock() - start) / CLOCKS_PER_SEC;
+            unlink_fifo(fifo_name);
+            return NULL;
+        }
     }
     
     free(request_info);
     close(fd);
-    
-    if (unlink(fifo_name) == -1)
-    {
-        free(request_info);
-        perror(strcat(fifo_name, " FIFO unlink failed on controlador"));
-        pthread_exit(NULL);
-    }
-    
+    unlink_fifo(fifo_name);
     pthread_exit(NULL);
 }
 
@@ -138,7 +120,7 @@ void* arrumador(void* arg) {
     info_t info;
     int fd_vehicle;
     int accepted = 0;
-    
+    feedback_t request_feedback;
     
     pthread_detach(pthread_self());
     
@@ -162,27 +144,32 @@ void* arrumador(void* arg) {
     {
         accepted = 1;
         numLugaresOcupados++;
-        write(fd_vehicle, ACCEPTED_STR, sizeof(ACCEPTED_STR));
-        
+        strcpy(request_feedback.msg, ACCEPTED_STR);
     }
     else {
-        write(fd_vehicle, FULL_STR, sizeof(FULL_STR));
+        strcpy(request_feedback.msg, FULL_STR);
     }
     
     pthread_mutex_unlock(&arrumador_lock);
     /*********************************/
     
+    write(fd_vehicle, &request_feedback, sizeof(request_feedback));
+    
     if (accepted)
     {
+        feedback_t exit_feedback;
+        
         // Esperar
         wait_ticks(info.parking_time);
         
         // Validar saida (Zona critica)
         pthread_mutex_lock(&arrumador_lock);
         numLugaresOcupados--;
-        write(fd_vehicle, EXITING_STR, sizeof(EXITING_STR));
         pthread_mutex_unlock(&arrumador_lock);
         /*********************************/
+        
+        strcpy(exit_feedback.msg, EXITING_STR);
+        write(fd_vehicle, &exit_feedback, sizeof(exit_feedback));
         
         //printf("%s - %s\n", info.vehicle_fifo_name, EXITING_STR);
     }
@@ -191,4 +178,27 @@ void* arrumador(void* arg) {
     free(arg);
     close(fd_vehicle);
     return NULL;
+}
+
+
+
+
+
+void notify_controllers(const char* message) {
+    int fd;
+    info_t info;
+    
+    strcpy(info.vehicle_fifo_name, message);
+    
+    int i;
+    for (i = 0; i < NUM_CONTROLLERS; i++)
+    {
+        if ( (fd = open(controller_name[i], O_WRONLY)) == -1 )
+        {
+            perror("Error notifying controllers");
+            return;
+        }
+        
+        write(fd, &info, sizeof(info));
+    }
 }

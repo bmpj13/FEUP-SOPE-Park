@@ -14,7 +14,6 @@
 #include "utils.h"
 
 #define PARK_TIME_MULTIPLES             10
-#define RESPONSE_LEN                    31
 
 
 const char VEHICLE_FIFO_PREFIX[] = "/tmp/fifo_vh";
@@ -82,8 +81,7 @@ int main(int argc, char **argv)
 void* veiculo(void* arg) {
     vehicle_t vehicle;
     int fd_vehicle, fd_controller;
-    char response[RESPONSE_LEN];
-    int r;
+    feedback_t feedback;
     
     
     pthread_detach(pthread_self());
@@ -93,7 +91,7 @@ void* veiculo(void* arg) {
     numberVehicles++;
     vehicle = create_vehicle(numberVehicles);
     pthread_mutex_unlock(&veiculo_lock);
-
+    
     
     if ( (fd_controller = open(vehicle.controller_fifo_name, O_WRONLY)) == -1 )
     {
@@ -102,22 +100,9 @@ void* veiculo(void* arg) {
     }
     
     
-    if (mkfifo(vehicle.info.vehicle_fifo_name, S_IWUSR | S_IRUSR) == -1)
-    {
-        perror(strcat(vehicle.info.vehicle_fifo_name, " FIFO creation failed on veiculo"));
-        unlink(vehicle.info.vehicle_fifo_name);
-        close(fd_controller);
+    if ( (fd_vehicle = init_fifo(vehicle.info.vehicle_fifo_name)) == -1 )
         return NULL;
-    }
-    
-    if ( (fd_vehicle = open(vehicle.info.vehicle_fifo_name, O_RDWR)) == -1 )
-    {
-        perror(strcat(vehicle.info.vehicle_fifo_name, " FIFO opening failed on veiculo"));
-        unlink(vehicle.info.vehicle_fifo_name);
-        close(fd_controller);
-        return NULL;
-    }
-    
+
     
     if (write(fd_controller, &vehicle.info, sizeof(vehicle.info)) == -1)
     {
@@ -127,44 +112,36 @@ void* veiculo(void* arg) {
         return NULL;
     }
     
-    if ( (r = read(fd_vehicle, response, sizeof(response))) == -1)
+    if (read(fd_vehicle, &feedback, sizeof(feedback)) == -1)
     {
-        perror("Error reading controller's response");
-        unlink(vehicle.info.vehicle_fifo_name);
+        perror("Error reading controller's feedback");
+        unlink_fifo(vehicle.info.vehicle_fifo_name);
         close(fd_vehicle);
         close(fd_controller);
         return NULL;
     }
     
-    response[r] = '\0';
-     printf("%s - %s\n", vehicle.info.vehicle_fifo_name, response);
     
-    if (strcmp(response, ACCEPTED_STR) == 0)
+    if (strcmp(feedback.msg, ACCEPTED_STR) == 0)
     {
         //printf("%s\n", vehicle.info.vehicle_fifo_name);
         
-        if ( (r = read(fd_vehicle, response, sizeof(response))) == -1)
+        if (read(fd_vehicle, &feedback, sizeof(feedback)) == -1)
         {
-            perror("Error reading controller's response");
-            unlink(vehicle.info.vehicle_fifo_name);
+            perror("Error reading controller's second feedback");
+            unlink_fifo(vehicle.info.vehicle_fifo_name);
             close(fd_vehicle);
             close(fd_controller);
             return NULL;
         }
         
-        response[r] = '\0';
         //    printf("%s\n", response);
     }
     
     close(fd_vehicle);
     close(fd_controller);
     
-    if (unlink(vehicle.info.vehicle_fifo_name) == -1)
-    {
-        perror(strcat(vehicle.info.vehicle_fifo_name, " FIFO unlink failed on veiculo"));
-        return NULL;
-    }
-    
+    unlink_fifo(vehicle.info.vehicle_fifo_name);
     return NULL;
 }
 
