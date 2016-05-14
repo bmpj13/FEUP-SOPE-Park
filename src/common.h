@@ -8,11 +8,10 @@
 #define VEHICLE_NAME_LEN            100
 #define MESSAGE_LEN                 100
 
-const char FULL_STR[] = "cheio!";
 const char ACCEPTED_STR[] = "entrada";
+const char FULL_STR[] = "cheio!";
 const char EXITING_STR[] = "saida";
 const char CLOSED_STR[] = "encerrado";
-const char FINISH_STR[] = "ACABAR";
 
 
 char* controller_name[NUM_CONTROLLERS] = {"/tmp/fifoN", "/tmp/fifoE", "/tmp/fifoS", "/tmp/fifoO"};

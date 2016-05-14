@@ -13,6 +13,16 @@
 #include "utils.h"
 
 #define NUM_CONTROLLERS         4
+#define LOGGER_NAME             "parque.log"
+
+const char FINISH_STR[] = "ACABAR";
+
+const char LOG_ACCEPTED_STR[] = "estacionamento";
+const char LOG_FULL_STR[] = "cheio";
+const char LOG_EXITING_STR[] = "saida";
+const char LOG_CLOSED_STR[] = "encerrado";
+
+clock_t start;
 
 
 /* Global Variables */
@@ -20,12 +30,16 @@ static int numLugares;
 static int tAbertura;
 static int numLugaresOcupados = 0;
 static pthread_mutex_t arrumador_lock = PTHREAD_MUTEX_INITIALIZER;
+static FILE* fp_logger;
 
 
 /* Functions */
 void* controlador(void* arg);
 void* arrumador(void* arg);
 void notify_controllers(const char* message);
+int notify_pending_vehicles(int fd_controller);
+FILE* init_logger(char* name);
+int park_log(info_t info, const char* status);
 
 
 int main(int argc, char** argv) {
@@ -51,6 +65,14 @@ int main(int argc, char** argv) {
         exit(3);
     }
     
+    if ( (fp_logger = init_logger(LOGGER_NAME)) == NULL )
+    {
+        fprintf(stderr, "Error opening %s\n", LOGGER_NAME);
+        exit(4);
+    }
+    
+    
+    start = clock();
     
     int i;
     for (i = 0; i < NUM_CONTROLLERS; i++)
@@ -66,6 +88,7 @@ int main(int argc, char** argv) {
         pthread_join(threads[i], NULL);
     }
     
+    fclose(fp_logger);
     pthread_exit(0);
 }
 
@@ -78,13 +101,15 @@ void* controlador(void* arg) {
     pthread_t detach_thread;
     info_t* request_info;
     
+    
     fifo_name = (char *) arg;
     
-    if ( (fd = init_fifo(fifo_name)) == -1 )
+    if ( (fd = init_fifo(fifo_name, O_RDONLY)) == -1 )
         pthread_exit(NULL);
     
-    request_info = (info_t *) malloc(sizeof(info_t));
+    
     while (1) {
+        request_info = (info_t *) malloc(sizeof(info_t));
         
         ret = read(fd, request_info, sizeof(*request_info));
         
@@ -93,10 +118,7 @@ void* controlador(void* arg) {
             if (strcmp(request_info->vehicle_fifo_name, FINISH_STR) == 0)
                 break;
             
-            printf("%s\n", request_info->vehicle_fifo_name);
-            
             pthread_create(&detach_thread, NULL, arrumador, request_info);
-            request_info = (info_t *) malloc(sizeof(info_t));
         }
         else if (ret == -1)
         {
@@ -108,7 +130,8 @@ void* controlador(void* arg) {
         }
     }
     
-    free(request_info);
+    notify_pending_vehicles(fd);
+    
     close(fd);
     unlink_fifo(fifo_name);
     pthread_exit(NULL);
@@ -120,12 +143,10 @@ void* arrumador(void* arg) {
     info_t info;
     int fd_vehicle;
     int accepted = 0;
-    feedback_t request_feedback;
+    feedback_t feedback;
+    
     
     pthread_detach(pthread_self());
-    
-    
-    printf("%d\n", numLugaresOcupados);
     
     info = *(info_t *) arg;
     
@@ -136,7 +157,6 @@ void* arrumador(void* arg) {
         return NULL;
     }
     
-    
     // Validar entrada (Zona critica)
     pthread_mutex_lock(&arrumador_lock);
     
@@ -144,16 +164,18 @@ void* arrumador(void* arg) {
     {
         accepted = 1;
         numLugaresOcupados++;
-        strcpy(request_feedback.msg, ACCEPTED_STR);
+        strcpy(feedback.msg, ACCEPTED_STR);
+        park_log(info, LOG_ACCEPTED_STR);
     }
     else {
-        strcpy(request_feedback.msg, FULL_STR);
+        strcpy(feedback.msg, FULL_STR);
+        park_log(info, LOG_FULL_STR);
     }
     
     pthread_mutex_unlock(&arrumador_lock);
     /*********************************/
     
-    write(fd_vehicle, &request_feedback, sizeof(request_feedback));
+    write(fd_vehicle, &feedback, sizeof(feedback));
     
     if (accepted)
     {
@@ -164,14 +186,15 @@ void* arrumador(void* arg) {
         
         // Validar saida (Zona critica)
         pthread_mutex_lock(&arrumador_lock);
+        
         numLugaresOcupados--;
+        strcpy(exit_feedback.msg, EXITING_STR);
+        park_log(info, LOG_EXITING_STR);
+        
         pthread_mutex_unlock(&arrumador_lock);
         /*********************************/
         
-        strcpy(exit_feedback.msg, EXITING_STR);
         write(fd_vehicle, &exit_feedback, sizeof(exit_feedback));
-        
-        //printf("%s - %s\n", info.vehicle_fifo_name, EXITING_STR);
     }
     
     
@@ -200,5 +223,64 @@ void notify_controllers(const char* message) {
         }
         
         write(fd, &info, sizeof(info));
+        close(fd);
     }
+}
+
+
+
+
+int notify_pending_vehicles(int fd_controller) {
+    info_t info;
+    feedback_t feedback;
+    int fd_vehicle;
+    
+    
+    strcpy(feedback.msg, CLOSED_STR);
+    
+    while (read(fd_controller, &info, sizeof(info)) > 0)
+    {
+        if ( (fd_vehicle = open(info.vehicle_fifo_name, O_WRONLY)) == -1 )
+        {
+            perror(strcat(info.vehicle_fifo_name, " FIFO opening failed on final notifications"));
+            close(fd_controller);
+            return -1;
+        }
+        
+        write(fd_vehicle, &feedback, sizeof(feedback));
+        close(fd_vehicle);
+    }
+    
+    close(fd_controller);
+    return 0;
+}
+
+
+
+
+
+
+FILE* init_logger(char* name) {
+    FILE* fp;
+    
+    if ( (fp = fopen(name, "w")) == NULL )
+        return NULL;
+    
+    fprintf(fp, "t(ticks) ; nlug ; id_viat ; observ\n");
+    
+    return fp;
+}
+
+
+
+int park_log(info_t info, const char* status) {
+    char log_msg[LOG_LENGTH];
+    
+    sprintf(log_msg, "%8ld ; %4d ; %7d ; %s\n",
+            clock() - start,
+            numLugaresOcupados, 
+            info.vehicle_id, 
+            status);
+    
+    return Log(fp_logger, log_msg);
 }

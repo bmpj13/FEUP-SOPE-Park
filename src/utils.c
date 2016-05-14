@@ -3,6 +3,7 @@
 
 static int ERROR_MSG_LEN = 200;
 
+
 /*
  * strtol man page:
  * 
@@ -41,7 +42,7 @@ void wait_ticks(clock_t wait_time) {
     
     start = clock();
     diff = clock();
-    while (diff - start < wait_time)
+    while ((diff - start) < wait_time)
         diff = clock();
 }
 
@@ -49,7 +50,7 @@ void wait_ticks(clock_t wait_time) {
 
 
 /* Creates and opens FIFO */
-int init_fifo(char* fifo_name) {
+int init_fifo(char* fifo_name, int oflags) {
     int fd;
     char msg[ERROR_MSG_LEN];
     
@@ -60,7 +61,7 @@ int init_fifo(char* fifo_name) {
         return -1;
     }
     
-    if ( (fd = open(fifo_name, O_RDWR)) == -1 )
+    if ( (fd = open(fifo_name, oflags)) == -1 )
     {
         sprintf(msg, "FIFO %s opening failed", fifo_name);
         perror(msg);
@@ -85,4 +86,11 @@ int unlink_fifo(char* fifo_name) {
     }
     
     return 0;
+}
+
+
+
+
+int Log(FILE* fp, const char* message) {
+    return fprintf(fp, "%s", message);
 }

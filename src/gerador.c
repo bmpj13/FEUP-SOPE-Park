@@ -13,10 +13,13 @@
 #include "common.h"
 #include "utils.h"
 
+
 #define PARK_TIME_MULTIPLES             10
+#define LOGGER_NAME                     "gerador.log"
 
 
 const char VEHICLE_FIFO_PREFIX[] = "/tmp/fifo_vh";
+static FILE* fp_logger;
 
 
 typedef struct {
@@ -28,20 +31,24 @@ typedef struct {
 /* Global Variables */
 static int tGeracao;
 static clock_t uRelogio;
-static int numberVehicles = 0;
-static pthread_mutex_t veiculo_lock = PTHREAD_MUTEX_INITIALIZER;
+clock_t start;
 
 
 /* Functions */
 void* veiculo(void* arg);
 vehicle_t create_vehicle(int ID);
 void wait_ticks_random();
+FILE* init_logger(char* name);
+int generator_log(vehicle_t vehicle, const char* status);
+int generator_log_with_lifespan(vehicle_t vehicle, const char* status, clock_t lifespan);
 
 
 int main(int argc, char **argv)
 {
-    clock_t start;
     double timeElapsed = 0;
+    int vehicleID = 0;
+    vehicle_t* vehicle;
+    
     pthread_t detach_thread;
     
     srand(time(NULL));
@@ -64,11 +71,22 @@ int main(int argc, char **argv)
         exit(3);		
     }
     
+    if ( (fp_logger = init_logger(LOGGER_NAME)) == NULL )
+    {
+        fprintf(stderr, "Error opening %s\n", LOGGER_NAME);
+        exit(4);
+    }
+    
+    
     start = clock();
     while (timeElapsed < tGeracao)
     {
+        vehicle = malloc(sizeof(vehicle_t));
+        *vehicle = create_vehicle(vehicleID++);
+        
         wait_ticks_random();
-        pthread_create(&detach_thread, NULL, veiculo, NULL);
+        
+        pthread_create(&detach_thread, NULL, veiculo, vehicle);
         timeElapsed = (double) (clock() - start) / CLOCKS_PER_SEC; 
     }
     
@@ -82,33 +100,34 @@ void* veiculo(void* arg) {
     vehicle_t vehicle;
     int fd_vehicle, fd_controller;
     feedback_t feedback;
+    clock_t lifespan_start, lifespan_diff;
+
     
+    vehicle = *(vehicle_t *) arg;
     
     pthread_detach(pthread_self());
     
-    
-    pthread_mutex_lock(&veiculo_lock);
-    numberVehicles++;
-    vehicle = create_vehicle(numberVehicles);
-    pthread_mutex_unlock(&veiculo_lock);
-    
-    
     if ( (fd_controller = open(vehicle.controller_fifo_name, O_WRONLY)) == -1 )
     {
-        perror(strcat(vehicle.controller_fifo_name, " FIFO opening failed on veiculo"));
+        generator_log(vehicle, CLOSED_STR);
+        free(arg);
         return NULL;
     }
     
     
-    if ( (fd_vehicle = init_fifo(vehicle.info.vehicle_fifo_name)) == -1 )
+    if ( (fd_vehicle = init_fifo(vehicle.info.vehicle_fifo_name, O_RDWR)) == -1 ) {
+        free(arg);
         return NULL;
-
+    }
+    
+    lifespan_start = clock();
     
     if (write(fd_controller, &vehicle.info, sizeof(vehicle.info)) == -1)
     {
         perror("Error writing to controller");
         close(fd_vehicle);
         close(fd_controller);
+        free(arg);
         return NULL;
     }
     
@@ -118,29 +137,32 @@ void* veiculo(void* arg) {
         unlink_fifo(vehicle.info.vehicle_fifo_name);
         close(fd_vehicle);
         close(fd_controller);
+        free(arg);
         return NULL;
     }
     
     
+    generator_log(vehicle, feedback.msg);
+    
     if (strcmp(feedback.msg, ACCEPTED_STR) == 0)
     {
-        //printf("%s\n", vehicle.info.vehicle_fifo_name);
-        
         if (read(fd_vehicle, &feedback, sizeof(feedback)) == -1)
         {
             perror("Error reading controller's second feedback");
             unlink_fifo(vehicle.info.vehicle_fifo_name);
             close(fd_vehicle);
             close(fd_controller);
+            free(arg);
             return NULL;
         }
         
-        //    printf("%s\n", response);
+        lifespan_diff = clock() - lifespan_start;
+        generator_log_with_lifespan(vehicle, feedback.msg, lifespan_diff + vehicle.info.parking_time);
     }
     
     close(fd_vehicle);
     close(fd_controller);
-    
+    free(arg);
     unlink_fifo(vehicle.info.vehicle_fifo_name);
     return NULL;
 }
@@ -175,4 +197,57 @@ void wait_ticks_random() {
         generateTimeGap = 2;
     
     wait_ticks(generateTimeGap * uRelogio);
+}
+
+
+
+
+FILE* init_logger(char* name) {
+    FILE* fp;
+    
+    if ( (fp = fopen(name, "w")) == NULL )
+        return NULL;
+    
+    fprintf(fp, "t(ticks) ; id_viat ; destin ; t_estacion ; t_vida ; observ\n");
+    
+    return fp;
+}
+
+
+
+int generator_log(vehicle_t vehicle, const char* status) {
+    char log_msg[LOG_LENGTH];
+    
+    sprintf(log_msg, "%8ld ; %7d ; %4c   ; %10ld ; %6s ; %s\n", 
+            clock() - start, 
+            vehicle.info.vehicle_id, 
+            vehicle.controller_fifo_name[strlen(vehicle.controller_fifo_name) - 1],
+            vehicle.info.parking_time,
+            "?",
+            status
+           );
+    
+    return Log(fp_logger, log_msg);
+}
+
+
+
+
+int generator_log_with_lifespan(vehicle_t vehicle, const char* status, clock_t lifespan) {
+    char log_msg[LOG_LENGTH];
+    char lifespan_str[100];             // string where lifespan will be stored
+    
+    
+    sprintf(lifespan_str, "%ld", lifespan);
+    
+    sprintf(log_msg, "%8ld ; %7d ; %4c   ; %10ld ; %6s ; %s\n", 
+            clock() - start, 
+            vehicle.info.vehicle_id, 
+            vehicle.controller_fifo_name[strlen(vehicle.controller_fifo_name) - 1],
+            vehicle.info.parking_time,
+            lifespan_str,
+            status
+           );
+    
+    return Log(fp_logger, log_msg);
 }
