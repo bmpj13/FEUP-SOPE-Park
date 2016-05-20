@@ -94,3 +94,53 @@ int unlink_fifo(char* fifo_name) {
 int Log(FILE* fp, const char* message) {
     return fprintf(fp, "%s", message);
 }
+
+
+
+sem_t* init_sem(const char* name) {
+    sem_t* sem;
+    int just_open = 0;
+    
+    if( (sem = sem_open(name, O_CREAT | O_EXCL, S_IWUSR | S_IRUSR, 1)) == SEM_FAILED )
+    {
+        if (errno == EEXIST)
+            just_open = 1;
+        else 
+        {
+            perror("Error creating sempahore");
+            return SEM_FAILED;
+        }
+    }
+    
+    
+    if (just_open) {
+        if( (sem = sem_open(name, 0)) == SEM_FAILED )
+        {
+            perror("Error opening sempahore");
+            return SEM_FAILED;
+        }
+    }
+    
+    return sem;
+}
+
+
+
+
+int destroy_sem(sem_t* sem, const char* name) {
+    
+    if (sem_close(sem) == -1)
+    {
+        perror("Error closing semaphore");
+        return -1;
+    }
+    
+    
+    if (sem_unlink(name) == -1)
+    {
+        perror("Error unlinking semaphore");
+        return -1;
+    }
+    
+    return 0;
+}

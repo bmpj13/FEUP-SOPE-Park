@@ -31,8 +31,8 @@ typedef struct {
 /* Global Variables */
 static int tGeracao;
 static clock_t uRelogio;
-clock_t start;
-
+static clock_t start;
+static sem_t* sem;
 
 /* Functions */
 void* veiculo(void* arg);
@@ -78,6 +78,11 @@ int main(int argc, char **argv)
     }
     
     
+    if ( (sem = init_sem(SEM_NAME)) == SEM_FAILED )
+    {
+        exit(5);
+    }
+    
     start = clock();
     while (timeElapsed < tGeracao)
     {
@@ -87,6 +92,7 @@ int main(int argc, char **argv)
         wait_ticks_random();
         
         pthread_create(&detach_thread, NULL, veiculo, vehicle);
+        
         timeElapsed = (double) (clock() - start) / CLOCKS_PER_SEC; 
     }
     
@@ -101,18 +107,11 @@ void* veiculo(void* arg) {
     int fd_vehicle, fd_controller;
     feedback_t feedback;
     clock_t lifespan_start, lifespan_diff;
-
     
-    vehicle = *(vehicle_t *) arg;
     
     pthread_detach(pthread_self());
-    
-    if ( (fd_controller = open(vehicle.controller_fifo_name, O_WRONLY)) == -1 )
-    {
-        generator_log(vehicle, CLOSED_STR);
-        free(arg);
-        return NULL;
-    }
+    vehicle = *(vehicle_t *) arg;
+    lifespan_start = clock();
     
     
     if ( (fd_vehicle = init_fifo(vehicle.info.vehicle_fifo_name, O_RDWR)) == -1 ) {
@@ -120,23 +119,40 @@ void* veiculo(void* arg) {
         return NULL;
     }
     
-    lifespan_start = clock();
+    /* Zona Critica */
+    sem_wait(sem);
+    printf("ola\n");
+    if ( (fd_controller = open(vehicle.controller_fifo_name, O_WRONLY | O_NONBLOCK)) == -1 )
+    {
+        generator_log(vehicle, CLOSED_STR);
+        unlink_fifo(vehicle.info.vehicle_fifo_name);
+        free(arg);
+        sem_post(sem);
+        return NULL;
+    }
+    
     
     if (write(fd_controller, &vehicle.info, sizeof(vehicle.info)) == -1)
     {
         perror("Error writing to controller");
-        close(fd_vehicle);
+        unlink_fifo(vehicle.info.vehicle_fifo_name);
         close(fd_controller);
         free(arg);
+        sem_post(sem);
         return NULL;
     }
+    
+    close(fd_controller);
+    
+    sem_post(sem);
+    /***************/
+    
     
     if (read(fd_vehicle, &feedback, sizeof(feedback)) == -1)
     {
         perror("Error reading controller's feedback");
         unlink_fifo(vehicle.info.vehicle_fifo_name);
         close(fd_vehicle);
-        close(fd_controller);
         free(arg);
         return NULL;
     }
@@ -151,7 +167,6 @@ void* veiculo(void* arg) {
             perror("Error reading controller's second feedback");
             unlink_fifo(vehicle.info.vehicle_fifo_name);
             close(fd_vehicle);
-            close(fd_controller);
             free(arg);
             return NULL;
         }
@@ -161,7 +176,6 @@ void* veiculo(void* arg) {
     }
     
     close(fd_vehicle);
-    close(fd_controller);
     free(arg);
     unlink_fifo(vehicle.info.vehicle_fifo_name);
     return NULL;
@@ -225,7 +239,7 @@ int generator_log(vehicle_t vehicle, const char* status) {
             vehicle.info.parking_time,
             "?",
             status
-           );
+    );
     
     return Log(fp_logger, log_msg);
 }
@@ -247,7 +261,7 @@ int generator_log_with_lifespan(vehicle_t vehicle, const char* status, clock_t l
             vehicle.info.parking_time,
             lifespan_str,
             status
-           );
+    );
     
     return Log(fp_logger, log_msg);
 }

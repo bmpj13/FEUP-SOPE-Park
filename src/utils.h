@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <semaphore.h>
 
 #define LOG_LENGTH              1024
 
@@ -19,5 +20,7 @@ void wait_ticks(clock_t wait_time);
 int init_fifo(char* fifo_name, int oflags);
 int unlink_fifo(char* fifo_name);
 int Log(FILE* fp, const char* message);
+sem_t* init_sem(const char* name);
+int destroy_sem(sem_t* sem, const char* name);
 
 #endif

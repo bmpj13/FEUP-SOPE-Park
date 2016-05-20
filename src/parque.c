@@ -22,15 +22,15 @@ const char LOG_FULL_STR[] = "cheio";
 const char LOG_EXITING_STR[] = "saida";
 const char LOG_CLOSED_STR[] = "encerrado";
 
-clock_t start;
-
 
 /* Global Variables */
+static clock_t start;
 static int numLugares;
 static int tAbertura;
 static int numLugaresOcupados = 0;
 static pthread_mutex_t arrumador_lock = PTHREAD_MUTEX_INITIALIZER;
 static FILE* fp_logger;
+static sem_t* sem;
 
 
 /* Functions */
@@ -71,6 +71,10 @@ int main(int argc, char** argv) {
         exit(4);
     }
     
+    if ( (sem = init_sem(SEM_NAME)) == SEM_FAILED )
+    {
+        exit(5);
+    }
     
     start = clock();
     
@@ -81,12 +85,17 @@ int main(int argc, char** argv) {
     }
     
     sleep(tAbertura);
+    
+    /* Zona Critica */
+    sem_wait(sem);
+    
     notify_controllers(FINISH_STR);
     
     for (i = 0; i < NUM_CONTROLLERS; i++)
-    {
         pthread_join(threads[i], NULL);
-    }
+    
+    sem_post(sem);
+    /***************/
     
     fclose(fp_logger);
     pthread_exit(0);
@@ -130,8 +139,6 @@ void* controlador(void* arg) {
         }
     }
     
-    notify_pending_vehicles(fd);
-    
     close(fd);
     unlink_fifo(fifo_name);
     pthread_exit(NULL);
@@ -147,8 +154,8 @@ void* arrumador(void* arg) {
     
     
     pthread_detach(pthread_self());
-    
     info = *(info_t *) arg;
+    
     
     if ( (fd_vehicle = open(info.vehicle_fifo_name, O_WRONLY)) == -1 )
     {
@@ -226,38 +233,6 @@ void notify_controllers(const char* message) {
         close(fd);
     }
 }
-
-
-
-
-int notify_pending_vehicles(int fd_controller) {
-    info_t info;
-    feedback_t feedback;
-    int fd_vehicle;
-    
-    
-    strcpy(feedback.msg, CLOSED_STR);
-    
-    while (read(fd_controller, &info, sizeof(info)) > 0)
-    {
-        if ( (fd_vehicle = open(info.vehicle_fifo_name, O_WRONLY)) == -1 )
-        {
-            perror(strcat(info.vehicle_fifo_name, " FIFO opening failed on final notifications"));
-            close(fd_controller);
-            return -1;
-        }
-        
-        write(fd_vehicle, &feedback, sizeof(feedback));
-        close(fd_vehicle);
-    }
-    
-    close(fd_controller);
-    return 0;
-}
-
-
-
-
 
 
 FILE* init_logger(char* name) {
