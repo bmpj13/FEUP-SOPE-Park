@@ -121,10 +121,11 @@ void* veiculo(void* arg) {
     
     /* Zona Critica */
     sem_wait(sem);
-    printf("ola\n");
+    
     if ( (fd_controller = open(vehicle.controller_fifo_name, O_WRONLY | O_NONBLOCK)) == -1 )
     {
         generator_log(vehicle, CLOSED_STR);
+        
         unlink_fifo(vehicle.info.vehicle_fifo_name);
         free(arg);
         sem_post(sem);

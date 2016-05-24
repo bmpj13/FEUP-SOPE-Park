@@ -2,6 +2,7 @@
 
 
 static int ERROR_MSG_LEN = 200;
+static int MICROSECOND_MULTIPLIER = 1000000;
 
 
 /*
@@ -39,7 +40,7 @@ int convert_str_to_int(char* str, int* num) {
 /* Waits 'wait_time' ticks */
 void wait_ticks(clock_t wait_time) {
     clock_t start, diff;
-    
+
     start = clock();
     diff = clock();
     while ((diff - start) < wait_time)
@@ -107,7 +108,7 @@ sem_t* init_sem(const char* name) {
             just_open = 1;
         else 
         {
-            perror("Error creating sempahore");
+            perror("Error creating semaphore");
             return SEM_FAILED;
         }
     }
@@ -116,7 +117,7 @@ sem_t* init_sem(const char* name) {
     if (just_open) {
         if( (sem = sem_open(name, 0)) == SEM_FAILED )
         {
-            perror("Error opening sempahore");
+            perror("Error opening semaphore");
             return SEM_FAILED;
         }
     }

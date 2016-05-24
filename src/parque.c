@@ -97,6 +97,8 @@ int main(int argc, char** argv) {
     sem_post(sem);
     /***************/
     
+    destroy_sem(sem, SEM_NAME);
+    
     fclose(fp_logger);
     pthread_exit(0);
 }

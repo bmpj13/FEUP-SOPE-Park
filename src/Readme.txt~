@@ -1,0 +1,11 @@
+Para responder aos requisitos anunciados para o segundo projeto de SOPE, implementamos uma possível soluçao, em que desenvolvemos 2 aplicaçoes que funcionam uma em paralelo com a outra. Tentámos tornar o código simples, eficiente, elegante e de fácil compreensão.
+
+As principais aplicações são as seguintes:
+
+parque: É responsavel por criar criar 4 theards controladores, referente aos 4 pontos de entrada e saida de viatura. Para além disso, por cada viatura criada pelo gerador, cria um thread que irá acompanhar o ciclo de vida da viatura, desde a entrada no parque até à respetiva saida.
+Neste programa tentamos reduzir ao máximo a complexidade e a quantidade de código dentro da zona crítica dos mutexes, de modo o tornar o programa mais eficiente. Adicionalmente, também usámos a função sleep para representar o tempo de abertura do parque. Deste modo é possível esperar pelo tempo designado de abertura do parque, sem necessitar de consumir CPU.
+
+
+gerador: É responsavel por criar viaturas com uma determinada frequência durante um intervalo de tempo, ditados pelos argumentos dados pelos utilizadores. O comportamento do código está de acordo com as especificações do enunciado.
+
+É de notar que se utilizou um semáforo na escrita para o FIFO do parque, para, deste modo, garantirmos que não ficam processos pendentes ou que recebam informações erradas.

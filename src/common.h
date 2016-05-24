@@ -13,7 +13,7 @@ const char FULL_STR[] = "cheio!";
 const char EXITING_STR[] = "saida";
 const char CLOSED_STR[] = "encerrado";
 
-const char SEM_NAME[] = "/syncing";
+const char SEM_NAME[] = "/semaphoresync";
 
 char* controller_name[NUM_CONTROLLERS] = {"/tmp/fifoN", "/tmp/fifoE", "/tmp/fifoS", "/tmp/fifoO"};
 
