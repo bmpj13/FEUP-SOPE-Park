@@ -1,27 +1,18 @@
 CC = gcc
-CFLAGS  = -Wall -lpthread -D_REENTRANT -lrt
-OBJECTS = gerador.o parque.o utils.o
-OBJECTS_GER = utils.o gerador.o
-OBJECTS_PAR = utils.o parque.o
+CFLAGS  = -Wall -D_REENTRANT
+LIBS = -lpthread
+OBJECTS_GER_DEP = src/gerador.c src/utils.c src/utils.h src/common.h
+OBJECTS_PAR_DEP = src/parque.c src/utils.c src/utils.h src/common.h
+OBJECTS_GER = src/gerador.c src/utils.c
+OBJECTS_PAR = src/parque.c src/utils.c
 	
-all: utils.o gerador.o parque.o bin/gerador bin/parque clean
-
-utils.o:	src/utils.c src/utils.h
-		cc -c src/utils.c $(CFLAGS)
-		
-gerador.o:	src/gerador.c src/utils.h src/common.h
-		cc -c src/gerador.c $(CFLAGS)
-		
-parque.o:	src/parque.c src/utils.h src/common.h
-		cc -c src/parque.c $(CFLAGS)
-		
+all: bin/gerador bin/parque 
 	
-bin/gerador:	$(OBJECTS_GER)
-		$(CC) $(OBJECTS_GER) -o bin/gerador $(CFLAGS)
+bin/gerador:	$(OBJECTS_GER_DEP)
+		$(CC) $(CFLAGS) $(OBJECTS_GER) -o bin/gerador $(LIBS)
 
-bin/parque:	$(OBJECTS_PAR)
-		$(CC) $(OBJECTS_PAR) -o bin/parque $(CFLAGS)
+bin/parque:	$(OBJECTS_PAR_DEP)
+		$(CC) $(CFLAGS) $(OBJECTS_PAR) -o bin/parque $(LIBS)
 
-.PHONY: clean
-clean :
-	-rm *.o
+
+
